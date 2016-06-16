@@ -1,0 +1,23 @@
+{
+  "name": "tcpproxy",
+  "version": "0.0.1",
+  "description": "a tiny tcp proxy",
+  "main": "index.js",
+  "scripts": {
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/capasky/tcpproxy.git"
+  },
+  "keywords": [
+    "proxy",
+    "tcp"
+  ],
+  "author": "Capasky <capasky@live.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/capasky/tcpproxy/issues"
+  },
+  "homepage": "https://github.com/capasky/tcpproxy#readme"
+}
