@@ -25,6 +25,8 @@ class TCPProxy extends EventEmitter {
         this.port = options.port;
         this.target = options.target;
         this.ssl = options.ssl;
+        this.clientSockets = new Set();
+        this.serverSockets = new Set();
         this.createServer();
     }
     /**
@@ -39,68 +41,100 @@ class TCPProxy extends EventEmitter {
             : net.createServer(this._socketHandler.bind(this));
         this.on('error', this._onError);
         this._server.listen(this.port, () => {
-            console.log(`TCP Server listen at ${this.port}`);
+            console.log('TCP Server listen at %s', this.port);
         });
     }
     /**
-     * destroy proxy
+     * Close socket server and destroy the proxy
      */
-    destroy() {
+    closeServer() {
         if (this._server) {
-            this._server.close();
-            this.proxySocket && this.proxySocket.end();
-            this.serviceSocket && this.serviceSocket.end();
-            console.log(`TCP Server(port=${this.port}) closed.`);
+            for (let socket of this.clientSockets) {
+                !socket.destroyed && socket.destroy();
+            }
+            for (let socket of this.serverSockets) {
+                !socket.destroyed && socket.destroy();
+            }
+            this._server.close(() => {
+                console.log(`TCP Server(port=${this.port}) closed.`);
+                this._server = null;
+            });
         }
     }
     /**
      * @private
      */
-    _socketHandler(proxySocket) {
-        console.log('New socket connect');
+    _socketHandler(clientSocket) {
+        console.log(`Receive new socket connection from ${clientSocket.remoteAddress}:${clientSocket.remotePort}`);
 
-        let connected = false;
-        let buffers = [];
-        let serviceSocket = new net.Socket();
-        serviceSocket.connect(this.target.port, this.target.host, () => {
-            connected = true;
-            if (buffers.length > 0) {
-                for (let i = 0; i < buffers.length; i++) {
-                    serviceSocket.write(buffers[i]);
-                }
+        let clientSocketConnected = true;
+        let serverSocketConnected = false;
+
+        clientSocket.setKeepAlive(true);
+        this.clientSockets.add(clientSocket);
+        const buffers = [];
+        const serverSocket = new net.createConnection({
+            port: this.target.port,
+            host: this.target.host
+        }, () => {
+            serverSocketConnected = true;
+            this.serverSockets.add(serverSocket)
+            try {
+                buffers.forEach(buffer => {
+                    serverSocket.write(buffer);
+                });
+            } catch (error) {
+                serverSocket.destroy(error);
             }
         });
-        proxySocket.on("error", error => {
-            serviceSocket.end();
+
+        clientSocket.on('end', () => clientSocketConnected = false);
+        serverSocket.on('end', () => serverSocketConnected = false);
+
+        clientSocket.on("error", error => {
+            clientSocketConnected = false;
+            !serverSocket.destroyed && serverSocket.destroy(error);
+            console.error(`Client socket error`);
             this.emit('error', error);
         });
-        serviceSocket.on("error", error => {
+        serverSocket.on("error", error => {
+            serverSocketConnected = false;
+            !clientSocket.destroyed && clientSocket.destroy(error);
             console.error(`Could not connect to service at host ${this.target.host}:${this.target.port}`);
-            proxySocket.end();
             this.emit('error', error);
         });
-        proxySocket.on("data", data => {
-            if (connected) {
-                serviceSocket.write(data);
+
+        clientSocket.on("data", data => {
+            if (serverSocketConnected) {
+                try {
+                    serverSocket.write(data);
+                } catch (error) {
+                    this.emit('error', error);
+                }
             } else {
                 buffers.push(data);
             }
         });
-        serviceSocket.on("data", data => {
-            proxySocket.write(data);
+        serverSocket.on("data", data => {
+            if (clientSocketConnected) {
+                try {
+                    clientSocket.write(data);
+                } catch (error) {
+                    this.emit('error', error);
+                }
+            }
         });
-        proxySocket.on("close", error => {
+
+        clientSocket.on("close", error => {
             console.log('Client socket closed.');
-            serviceSocket.end();
+            this.clientSockets.has(clientSocket) && this.clientSockets.delete(clientSocket);
             this.emit('close', error);
         });
-        serviceSocket.on("close", error => {
-            console.log('Service socket closed.');
-            proxySocket.end();
+        serverSocket.on("close", error => {
+            console.log('Server socket closed.');
+            this.serverSockets.has(serverSocket) && this.serverSockets.delete(serverSocket);
             this.emit('close', error);
         });
-        this.proxySocket = proxySocket;
-        this.serviceSocket = serviceSocket;
     }
     /**
      * @private
