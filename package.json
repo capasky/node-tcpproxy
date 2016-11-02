@@ -1,6 +1,6 @@
 {
   "name": "tcpproxy",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "a tiny tcp proxy",
   "main": "index.js",
   "scripts": {
