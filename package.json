@@ -1,5 +1,5 @@
 {
-  "name": "tcpproxy",
+  "name": "node-tcpproxy",
   "version": "0.0.2",
   "description": "a tiny tcp proxy",
   "main": "index.js",
